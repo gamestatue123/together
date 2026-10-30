@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Together</title>
+<style>
+:root{--bg:#eef0f5;--fg:#14161c;--mu:#6b7080;--card:#fff;--line:#dde0ea;--ac:#3b4bff;--on:#fff;color-scheme:light}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1015;--fg:#eceef5;--mu:#8b90a2;--card:#171a22;--line:#262a36;--ac:#8c98ff;--on:#0e1015;color-scheme:dark}}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+[hidden]{display:none!important}
+.wrap{max-width:1000px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:2.4rem;letter-spacing:-.03em;margin:12vh 0 4px}h2{font-size:1.25rem;margin:14px 0 2px;letter-spacing:-.01em}h3{font-size:.95rem;color:var(--mu);margin:22px 0 8px;font-weight:600}
+.mu{color:var(--mu);margin:0}
+input,select,button{font:inherit;color:inherit}
+input[type=text],select{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+button{padding:11px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);cursor:pointer}
+button.pri{background:var(--ac);color:var(--on);border-color:var(--ac);font-weight:600}
+button:disabled{opacity:.4;cursor:default}
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.home{max-width:380px;display:grid;gap:10px}.home h1+p{margin-bottom:14px}
+.row{display:flex;gap:8px;align-items:center}.row>input{flex:1;min-width:0}.sp{flex:1}
+header{display:flex;gap:8px;align-items:center;margin-bottom:14px}header b{font-size:1.2rem;letter-spacing:.12em}
+.grid{display:grid;gap:20px}@media(min-width:860px){.grid{grid-template-columns:1.2fr 1fr;align-items:start}}
+.vid{aspect-ratio:16/9;background:#000;border-radius:14px;overflow:hidden}.vid iframe{width:100%;height:100%;display:block}
+#tap{width:100%;margin-top:10px}
+input[type=range]{width:100%;accent-color:var(--ac);margin:12px 0 2px}
+.time{display:flex;justify-content:space-between;font-size:.85rem;color:var(--mu)}
+.ctl{display:flex;gap:8px;align-items:center;margin-top:10px}.ctl button{min-width:48px}.ctl input{width:110px;margin:0}
+.item{display:flex;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.item div{flex:1;min-width:0}.item span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item small{color:var(--mu)}.item button{padding:6px 10px;font-size:.9rem}
+.opt{display:flex;gap:10px;align-items:center;padding:6px 0}.opt input{accent-color:var(--ac);width:18px;height:18px}
+</style></head><body>
+<main id="home" class="wrap home">
+  <h1>Together</h1><p class="mu">Listen to music in perfect sync.</p>
+  <input type="text" id="name" placeholder="Your name" maxlength="20" autocomplete="nickname">
+  <button id="create" class="pri">Start a room</button>
+  <button id="solo">Listen alone</button>
+  <div class="row"><input type="text" id="code" placeholder="Room code" maxlength="5" autocapitalize="characters"><button id="join">Join</button></div>
+  <p id="err" class="mu"></p>
+</main>
+<main id="room" class="wrap" hidden>
+  <header><b id="rc"></b><span class="sp"></span><button id="inv">Invite</button><button id="leave">Leave</button></header>
+  <div class="grid">
+    <section>
+      <div class="vid"><div id="yt"></div></div>
+      <button id="tap" class="pri" hidden>Tap to start audio</button>
+      <h2 id="title">Nothing playing</h2><p id="by" class="mu">Add a song to begin.</p>
+      <input type="range" id="bar" min="0" max="1000" value="0" aria-label="Seek">
+      <div class="time"><span id="t1">0:00</span><span id="t2">0:00</span></div>
+      <div class="ctl"><button id="pp" aria-label="Play or pause">Play</button><button id="nx">Skip</button><button id="rs" title="Jump back to the group's position">Resync</button><span class="sp"></span><input type="range" id="vol" min="0" max="100" value="80" aria-label="Volume"></div>
+    </section>
+    <section>
+      <div class="row"><input type="text" id="q" placeholder="Search or paste a YouTube link"><button id="go" class="pri">Add</button></div>
+      <div id="res"></div>
+      <h3>Up next</h3><div id="ql"></div>
+      <div id="people">
+        <h3>Listening now (<span id="nu">1</span>)</h3><div id="ul"></div>
+        <div id="set" hidden>
+          <h3>Host controls</h3>
+          <label class="opt"><input type="checkbox" id="ga"> Guests can add songs</label>
+          <label class="opt"><input type="checkbox" id="gc"> Guests can play, pause and skip</label>
+        </div>
+      </div>
+      <h3>Sleep timer</h3>
+      <select id="sleep"><option value="0">Off</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option></select>
+    </section>
+  </div>
+</main>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const $=id=>document.getElementById(id), socket=io();
+let S=null,me=null,code=null,solo=false,offset=0,P=null,ready=false,loaded=null,drag=false,sleepT=null;
+const tk=localStorage.tk||(localStorage.tk=Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2));
+$('name').value=localStorage.nm||'';
+const srv=()=>Date.now()+offset, fmt=s=>{s=Math.max(0,s|0);return (s/60|0)+':'+String(s%60).padStart(2,'0')};
+const isHost=()=>S&&S.host===me, can=()=>isHost()||(S&&S.gc);
+const mk=(t,txt,cls)=>{const e=document.createElement(t);if(txt!=null)e.textContent=txt;if(cls)e.className=cls;return e};
+async function syncClock(){let b=null;for(let i=0;i<6;i++){const t0=Date.now(),st=await new Promise(r=>socket.emit('time',r)),t1=Date.now(),rtt=t1-t0;if(!b||rtt<b.rtt)b={rtt,off:st+rtt/2-t1}}offset=b.off}
+async function doJoin(c){
+  const name=$('name').value.trim()||'Guest';localStorage.nm=name;
+  await syncClock();
+  socket.emit('join',{code:c,name,token:tk},res=>{
+    if(res.err){$('err').textContent=res.err;show(false);code=null;return}
+    me=res.uid;code=res.code;show(true);
+  });
+}
+function show(inRoom){$('home').hidden=inRoom;$('room').hidden=!inRoom;if(inRoom){$('rc').textContent=solo?'Solo':code;$('inv').hidden=solo;$('people').hidden=solo;history.replaceState(null,'',solo?'/':'/?room='+code)}}
+function leave(){location.href='/'}
+socket.on('connect',()=>{if(code)doJoin(code)});
+socket.on('kicked',()=>{alert('The host removed you from this room.');leave()});
+socket.on('state',s=>{S=s;render();apply()});
+$('create').onclick=()=>{solo=false;doJoin('')};
+$('solo').onclick=()=>{solo=true;doJoin('')};
+$('join').onclick=()=>{solo=false;const c=$('code').value.trim();c?doJoin(c):$('err').textContent='Enter a room code'};
+$('leave').onclick=leave;
+$('inv').onclick=async()=>{const url=location.origin+'/?room='+code;if(navigator.share){try{await navigator.share({title:'Listen with me',url});return}catch(e){}}await navigator.clipboard.writeText(url).catch(()=>{});$('inv').textContent='Link copied';setTimeout(()=>$('inv').textContent='Invite',1800)};
+const q=new URLSearchParams(location.search).get('room');
+if(q){$('code').value=q.toUpperCase();$('err').textContent='Enter your name, then tap Join.'}
+// ----- search & add
+async function search(){
+  const v=$('q').value.trim();if(!v)return;$('res').replaceChildren(mk('p','Searching…','mu'));
+  const j=await fetch('/api/search?q='+encodeURIComponent(v)).then(r=>r.json()).catch(()=>({error:'Network error'}));
+  if(j.error)return $('res').replaceChildren(mk('p',j.error,'mu'));
+  if(j.length===1&&j[0].link){add(j[0]);return}
+  if(!j.length)return $('res').replaceChildren(mk('p','No results.','mu'));
+  $('res').replaceChildren(...j.map(x=>{const d=mk('div',null,'item'),m=mk('div');m.append(mk('span',x.title),mk('small',x.channel));const b=mk('button','Add');b.onclick=()=>{add(x);b.disabled=true;b.textContent='Added'};d.append(m,b);return d}));
+}
+function add(x){socket.emit('add',{vid:x.vid,title:x.title});$('q').value='';$('res').replaceChildren(mk('p','Added “'+x.title+'”','mu'))}
+$('go').onclick=search;$('q').onkeydown=e=>e.key==='Enter'&&search();
+// ----- render
+function render(){
+  const c=S.cur;
+  $('title').textContent=c?c.title:'Nothing playing';
+  $('by').textContent=c?'Added by '+c.by:'Add a song to begin.';
+  $('pp').textContent=S.playing?'Pause':'Play';
+  const ok=can();$('pp').disabled=!ok||!c;$('nx').disabled=!ok||!c;$('bar').disabled=!ok||!c;
+  $('ga').checked=S.ga;$('gc').checked=S.gc;$('set').hidden=!isHost();
+  $('ql').replaceChildren(...(S.queue.length?S.queue.map(x=>{
+    const d=mk('div',null,'item'),m=mk('div');m.append(mk('span',x.title),mk('small',x.by));d.append(m);
+    if(ok){const b=mk('button','Play');b.onclick=()=>socket.emit('ctl',{type:'jump',id:x.id});d.append(b)}
+    if(isHost()||x.byUid===me){const b=mk('button','✕');b.setAttribute('aria-label','Remove');b.onclick=()=>socket.emit('remove',x.id);d.append(b)}
+    return d}):[mk('p','Queue is empty.','mu')]));
+  $('nu').textContent=S.users.length;
+  $('ul').replaceChildren(...S.users.map(u=>{const d=mk('div',null,'item'),m=mk('div');m.append(mk('span',u.name+(u.uid===S.host?' (host)':'')+(u.uid===me?' (you)':'')));d.append(m);
+    if(isHost()&&u.uid!==me){const b=mk('button','Remove');b.onclick=()=>socket.emit('kick',u.uid);d.append(b)}return d}));
+}
+$('pp').onclick=()=>socket.emit('ctl',{type:S.playing?'pause':'play'});
+$('nx').onclick=()=>socket.emit('ctl',{type:'next'});
+$('ga').onchange=$('gc').onchange=()=>socket.emit('settings',{ga:$('ga').checked,gc:$('gc').checked});
+$('bar').onpointerdown=()=>drag=true;
+$('bar').onchange=()=>{drag=false;const d=P.getDuration();if(d)socket.emit('ctl',{type:'seek',t:$('bar').value/1000*d})};
+$('vol').oninput=()=>P&&P.setVolume(+$('vol').value);
+$('sleep').onchange=()=>{clearTimeout(sleepT);const m=+$('sleep').value;if(m)sleepT=setTimeout(leave,m*60000)};
+// ----- player + sync
+const tag=document.createElement('script');tag.src='https://www.youtube.com/iframe_api';document.head.append(tag);
+window.onYouTubeIframeAPIReady=()=>{P=new YT.Player('yt',{width:'100%',height:'100%',playerVars:{controls:0,disablekb:1,playsinline:1,rel:0,modestbranding:1,iv_load_policy:3},
+  events:{onReady:()=>{ready=true;P.setVolume(+$('vol').value);S&&apply()},
+          onStateChange:e=>{if(e.data===0&&S&&S.cur)socket.emit('ended',S.cur.id)}}})};
+const target=()=>S.playing?S.pos+(srv()-S.at)/1000:S.pos;
+function apply(force){
+  if(!P||!ready||!S)return;const c=S.cur;
+  if(!c){if(loaded){P.stopVideo();loaded=null}return}
+  const t=target();
+  if(loaded!==c.id){loaded=c.id;S.playing?P.loadVideoById({videoId:c.vid,startSeconds:t}):P.cueVideoById({videoId:c.vid,startSeconds:t});return}
+  const st=P.getPlayerState(),cur=P.getCurrentTime();
+  if(S.playing){if(st!==1&&st!==3)P.playVideo();if(force||(st===1&&Math.abs(cur-t)>.8))P.seekTo(t,true)}
+  else{if(st===1||st===3)P.pauseVideo();if(Math.abs(cur-S.pos)>.5)P.seekTo(S.pos,true)}
+}
+$('rs').onclick=()=>apply(true);
+$('tap').onclick=()=>{$('tap').hidden=true;apply(true)};
+setInterval(()=>{if(S&&S.cur&&ready)apply()},1500);
+setInterval(()=>{ // progress + autoplay-blocked hint
+  if(!P||!ready||!S||!S.cur)return;
+  const d=P.getDuration()||0,t=P.getCurrentTime()||0;
+  if(!drag){$('bar').value=d?t/d*1000:0}$('t1').textContent=fmt(t);$('t2').textContent=fmt(d);
+  const st=P.getPlayerState();$('tap').hidden=!(S.playing&&(st===-1||st===5||st===2));
+},500);
+</script></body></html>
